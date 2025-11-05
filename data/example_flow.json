@@ -1,0 +1,43 @@
+[
+  {
+    "id": "inject_1",
+    "type": "inject",
+    "name": "Trigger Every 5 Seconds",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "repeat": "5",
+    "crontab": "",
+    "once": false,
+    "x": 180,
+    "y": 100,
+    "wires": [
+      ["function_1"]
+    ]
+  },
+  {
+    "id": "function_1",
+    "type": "function",
+    "name": "Format Message",
+    "func": "// Get current timestamp\nvar timestamp = new Date().toISOString();\n\n// Create formatted message\nmsg.payload = {\n  message: 'Hello from Node-RED Multi-Agent!',\n  timestamp: timestamp,\n  random: Math.random()\n};\n\nreturn msg;",
+    "outputs": 1,
+    "x": 380,
+    "y": 100,
+    "wires": [
+      ["debug_1"]
+    ]
+  },
+  {
+    "id": "debug_1",
+    "type": "debug",
+    "name": "Output",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "x": 580,
+    "y": 100,
+    "wires": []
+  }
+]
