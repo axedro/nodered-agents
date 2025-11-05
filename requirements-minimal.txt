@@ -1,4 +1,4 @@
-# Core dependencies
+# Core dependencies (versión mínima sin PyTorch)
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 pydantic==2.5.3
@@ -13,12 +13,10 @@ langchain-core>=0.1.42,<0.2.0  # Compatible con langgraph 0.0.38
 
 # LLM Providers
 ollama==0.1.6
-# openai==1.10.0  # Descomenta para usar OpenAI
-# anthropic==0.8.0  # Descomenta para usar Anthropic
 
-# Vector Store
+# Vector Store (sin sentence-transformers para evitar PyTorch)
 chromadb==0.4.22
-sentence-transformers==2.3.1
+# sentence-transformers==2.3.1  # Comentado para instalar sin PyTorch
 
 # Utilities
 httpx>=0.25.2,<0.26.0  # Compatible con ollama 0.1.6
