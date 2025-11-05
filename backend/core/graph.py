@@ -25,10 +25,15 @@ def route_next_agent(state: AgentState) -> str:
     """
     current = state.get('current_agent', 'cache_searcher')
 
-    logger.info(f"[Router] Current agent: {current}, Complete: {state.get('is_complete')}")
+    logger.info(f"[Router] Current agent: {current}, Complete: {state.get('is_complete')}, Needs input: {state.get('needs_user_input')}")
 
     # Si el workflow está completo, terminar
     if state.get('is_complete'):
+        return END
+
+    # Si necesita input del usuario, terminar para esperar respuesta
+    if state.get('needs_user_input'):
+        logger.info("[Router] Waiting for user input - ending workflow")
         return END
 
     # Routing basado en current_agent

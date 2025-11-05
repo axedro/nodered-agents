@@ -48,11 +48,6 @@ async def cache_searcher_agent(state: AgentState) -> AgentState:
         logger.info("[CacheSearcher] Cache MISS. Proceeding with conversation.")
         state['cached_solution'] = None
         state['current_agent'] = 'conversator'
-        state['needs_user_input'] = True
-
-        state['conversation_history'].append({
-            'role': 'assistant',
-            'content': "No encontré una solución previa similar. Vamos a crear un nuevo flujo. ¿Puedes darme más detalles sobre lo que necesitas?"
-        })
+        state['needs_user_input'] = False  # Dejar que conversator decida
 
     return state
