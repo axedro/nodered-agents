@@ -83,6 +83,16 @@ class OllamaLLM(BaseLLM):
             )
             response.raise_for_status()
             result = response.json()
+
+            # Validar estructura de respuesta
+            if "message" not in result:
+                logger.error(f"Ollama response missing 'message' key: {result}")
+                raise ValueError(f"Invalid Ollama response structure: {result}")
+
+            if "content" not in result["message"]:
+                logger.error(f"Ollama response missing 'content' key: {result['message']}")
+                raise ValueError(f"Invalid Ollama message structure: {result['message']}")
+
             return result["message"]["content"]
 
         except Exception as e:

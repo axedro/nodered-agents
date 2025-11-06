@@ -70,6 +70,17 @@ REGLAS IMPORTANTES:
 5. Usa los nodos instalados: {installed_nodes}
 6. Si hay funciones generadas, úsalas en nodos function
 
+REGLAS DE FORMATO JSON ESTRICTAS:
+- En strings de JavaScript dentro del JSON, usa SOLO estos escapes válidos: \\n \\t \\r \\\\ \\"
+- NO uses escapes inválidos como \\u sin 4 dígitos hex, \\x, u otros
+- Para código JavaScript multilínea, usa \\n entre líneas
+- Todas las comillas dentro de strings deben escaparse: \\"
+- NO incluyas comentarios (//) dentro del JSON
+- Asegura sintaxis JSON válida estricta
+
+Ejemplo de campo "func" correcto:
+"func": "var result = msg.payload;\\nreturn msg;"
+
 RESPONDE SOLO CON EL JSON DEL FLUJO, nada más.
 """
 
@@ -163,6 +174,39 @@ async def json_builder_agent(state: AgentState) -> AgentState:
     json_match = re.search(r'\[[\s\S]*\]', json_text)
     if json_match:
         json_text = json_match.group()
+
+    # Intentar validar y limpiar el JSON
+    try:
+        # Primero intentar parsear tal cual
+        parsed = json.loads(json_text)
+        # Si funciona, re-serializar para asegurar formato correcto
+        json_text = json.dumps(parsed, indent=2)
+        logger.info("[JsonBuilder] JSON validated and reformatted successfully")
+    except json.JSONDecodeError as e:
+        logger.warning(f"[JsonBuilder] Initial JSON parse failed: {e}, attempting cleanup...")
+
+        # Función para limpiar escapes inválidos comunes
+        def fix_invalid_escapes(text):
+            """Fix common invalid escape sequences in JSON"""
+            # Reemplazar escapes inválidos comunes
+            # \\u sin 4 dígitos hex → remover el escape
+            text = re.sub(r'\\u(?![0-9a-fA-F]{4})', 'u', text)
+            # \\x → remover el escape
+            text = re.sub(r'\\x', 'x', text)
+            # Otros escapes inválidos → remover el backslash
+            text = re.sub(r'\\([^ntr\\"\'bfvu/])', r'\1', text)
+            return text
+
+        # Intentar limpiar y parsear de nuevo
+        cleaned_text = fix_invalid_escapes(json_text)
+        try:
+            parsed = json.loads(cleaned_text)
+            json_text = json.dumps(parsed, indent=2)
+            logger.info("[JsonBuilder] JSON cleaned and validated successfully")
+        except json.JSONDecodeError as e:
+            logger.error(f"[JsonBuilder] JSON cleanup failed: {e}")
+            # Guardar de todas formas, el Validator lo manejará
+            pass
 
     state['final_json_flow'] = json_text
 

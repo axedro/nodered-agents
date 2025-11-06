@@ -61,7 +61,9 @@ async def run_workflow_background(session_id: str, state: AgentState):
                 ))
 
     except Exception as e:
+        import traceback
         logger.error(f"[Background] Workflow error for session {session_id}: {e}")
+        logger.error(f"[Background] Full traceback:\n{traceback.format_exc()}")
         if session_id in sessions:
             sessions[session_id]['error_message'] = str(e)
             sessions[session_id]['is_complete'] = True

@@ -53,6 +53,13 @@ IMPORTANTE:
 - Si un nodo tiene múltiples outputs (switch, function con return array), especifica el puerto
 - Asegura que todos los nodos estén conectados (no nodos huérfanos)
 
+REGLAS DE FORMATO JSON:
+- NO incluyas comentarios (//) en el JSON
+- NO incluyas texto explicativo dentro del JSON
+- Usa SOLO sintaxis JSON válida estricta
+- Todas las cadenas deben usar comillas dobles (")
+- Asegura que todas las comas estén correctamente colocadas
+
 Responde SOLO con este JSON:
 {{
   "connections": [
@@ -123,11 +130,64 @@ async def wiring_agent(state: AgentState) -> AgentState:
 
     logger.info(f"[WiringAgent] Response: {response[:300]}...")
 
-    # Extraer JSON
+    # Extraer JSON - usar approach robusto similar al Conversator
     try:
-        json_match = re.search(r'\{[\s\S]*"connections"[\s\S]*\}', response)
-        if json_match:
-            data = json.loads(json_match.group())
+        # Función auxiliar para limpiar comentarios de estilo //
+        def remove_json_comments(text):
+            """Remove // style comments from JSON text"""
+            lines = text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                # Buscar // fuera de strings
+                comment_pos = line.find('//')
+                if comment_pos != -1:
+                    # Verificar que no esté dentro de una string
+                    before = line[:comment_pos]
+                    quote_count = before.count('"') - before.count('\\"')
+                    if quote_count % 2 == 0:  # Par de comillas = fuera de string
+                        line = before.rstrip()
+                cleaned_lines.append(line)
+            return '\n'.join(cleaned_lines)
+
+        # Buscar JSON en la respuesta usando depth tracking
+        data = None
+        start_pos = 0
+        while True:
+            json_start = response.find('{', start_pos)
+            if json_start == -1:
+                break
+
+            json_candidate = response[json_start:]
+
+            # Usar depth tracking para encontrar el JSON completo
+            depth = 0
+            for i, char in enumerate(json_candidate):
+                if char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        # Tenemos un JSON completo
+                        potential_json = json_candidate[:i+1]
+
+                        # Limpiar comentarios
+                        cleaned_json = remove_json_comments(potential_json)
+
+                        try:
+                            parsed = json.loads(cleaned_json)
+                            if isinstance(parsed, dict) and 'connections' in parsed:
+                                data = parsed
+                                logger.info(f"[WiringAgent] Found valid JSON")
+                                break
+                        except json.JSONDecodeError:
+                            pass
+
+            if data:
+                break
+
+            start_pos = json_start + 1
+
+        if data:
 
             connections = data.get('connections', [])
             flow_diagram = data.get('flow_diagram', '')

@@ -34,12 +34,12 @@ Haz 1-2 preguntas directas y específicas.
 
 Si ya tienes SUFICIENTE información:
 Responde SOLO con este JSON (sin texto adicional):
-{
+{{
   "status": "complete",
   "clarified_request": "Descripción clara del flujo completo",
   "required_nodes": ["inject", "csv", "function", "email"],
   "detected_systems": ["FileSystem", "Email"]
-}
+}}
 
 EJEMPLOS:
 
