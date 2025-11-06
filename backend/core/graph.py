@@ -9,6 +9,10 @@ from backend.core.state import AgentState
 from backend.agents import (
     cache_searcher_agent,
     conversator_agent,
+    manager_agent,
+    configuration_agent,
+    conditional_agent,
+    wiring_agent,
     local_searcher_agent,
     web_searcher_agent,
     installer_agent,
@@ -40,6 +44,10 @@ def route_next_agent(state: AgentState) -> str:
     agent_map = {
         'cache_searcher': 'cache_searcher',
         'conversator': 'conversator',
+        'manager': 'manager',
+        'configuration': 'configuration',
+        'conditional': 'conditional',
+        'wiring': 'wiring',
         'local_searcher': 'local_searcher',
         'web_searcher': 'web_searcher',
         'installer': 'installer',
@@ -59,31 +67,36 @@ def create_workflow_graph() -> StateGraph:
     """
     Crea y configura el grafo de workflow con todos los agentes.
 
-    Flujo normal:
+    NUEVA ARQUITECTURA CON MANAGER:
     1. cache_searcher -> (si hit) validator -> END
                       -> (si miss) conversator
-    2. conversator -> (cuando complete) local_searcher
-    3. local_searcher -> (si missing) web_searcher
-                      -> (si complete) function_coder
-    4. web_searcher -> installer
-    5. installer -> function_coder
-    6. function_coder -> json_builder
-    7. json_builder -> validator
-    8. validator -> (si valid) END
+    2. conversator -> (cuando complete) manager
+    3. manager -> coordina:
+                  - local_searcher (verifica nodos)
+                  - web_searcher + installer (si faltan nodos)
+                  - configuration_agent (recopila configs)
+                  - function_coder (genera código)
+                  - conditional_agent (genera lógica condicional)
+                  - wiring_agent (planifica conexiones)
+    4. manager -> (si falta info) conversator -> usuario
+               -> (si completo) json_builder
+    5. json_builder -> validator
+    6. validator -> (si valid) END
                  -> (si error) json_builder (retry)
+
+    El Manager ejecuta los agentes internamente y decide si necesita más input del usuario.
     """
-    logger.info("Creating LangGraph workflow...")
+    logger.info("Creating LangGraph workflow with Manager architecture...")
 
     # Crear el grafo con el estado tipado
     workflow = StateGraph(AgentState)
 
-    # Agregar todos los agentes como nodos
+    # Agregar solo agentes principales del flujo
+    # El Manager ejecuta internamente: local_searcher, web_searcher, installer,
+    # function_coder, configuration_agent, conditional_agent, wiring_agent
     workflow.add_node("cache_searcher", cache_searcher_agent)
     workflow.add_node("conversator", conversator_agent)
-    workflow.add_node("local_searcher", local_searcher_agent)
-    workflow.add_node("web_searcher", web_searcher_agent)
-    workflow.add_node("installer", installer_agent)
-    workflow.add_node("function_coder", function_coder_agent)
+    workflow.add_node("manager", manager_agent)
     workflow.add_node("json_builder", json_builder_agent)
     workflow.add_node("validator", validator_agent)
 
@@ -107,48 +120,21 @@ def create_workflow_graph() -> StateGraph:
         route_next_agent,
         {
             "conversator": "conversator",
-            "local_searcher": "local_searcher",
+            "manager": "manager",
             END: END
         }
     )
 
     workflow.add_conditional_edges(
-        "local_searcher",
+        "manager",
         route_next_agent,
         {
-            "web_searcher": "web_searcher",
-            "function_coder": "function_coder",
-            END: END
-        }
-    )
-
-    workflow.add_conditional_edges(
-        "web_searcher",
-        route_next_agent,
-        {
-            "installer": "installer",
-            "function_coder": "function_coder",
-            END: END
-        }
-    )
-
-    workflow.add_conditional_edges(
-        "installer",
-        route_next_agent,
-        {
-            "function_coder": "function_coder",
-            END: END
-        }
-    )
-
-    workflow.add_conditional_edges(
-        "function_coder",
-        route_next_agent,
-        {
+            "conversator": "conversator",
             "json_builder": "json_builder",
             END: END
         }
     )
+
 
     workflow.add_conditional_edges(
         "json_builder",

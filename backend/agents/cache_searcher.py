@@ -6,6 +6,7 @@ from loguru import logger
 from backend.core.state import AgentState
 from backend.rag.vector_store import VectorStoreManager
 from backend.config import settings
+from backend.core.progress import progress_manager, ProgressEvent, ProgressEventType
 
 
 async def cache_searcher_agent(state: AgentState) -> AgentState:
@@ -14,6 +15,14 @@ async def cache_searcher_agent(state: AgentState) -> AgentState:
     Si encuentra una con >95% similitud, la usa directamente.
     """
     logger.info(f"[CacheSearcher] Searching for similar flows: {state['user_request'][:50]}...")
+
+    session_id = state.get('session_id')
+
+    await progress_manager.send_event(session_id, ProgressEvent(
+        type=ProgressEventType.AGENT_START,
+        agent="CacheSearcher",
+        message="Buscando soluciones similares en la base de conocimiento..."
+    ))
 
     vector_store = VectorStoreManager()
 
@@ -28,6 +37,13 @@ async def cache_searcher_agent(state: AgentState) -> AgentState:
         # ¡Cache hit! Usamos la solución existente
         best_match = similar_flows[0]
         logger.info(f"[CacheSearcher] Cache HIT! Similarity: {best_match['similarity']:.2%}")
+
+        await progress_manager.send_event(session_id, ProgressEvent(
+            type=ProgressEventType.AGENT_COMPLETE,
+            agent="CacheSearcher",
+            message=f"✓ Solución encontrada en caché (similitud: {best_match['similarity']:.2%})",
+            details={'similarity': best_match['similarity']}
+        ))
 
         # Incrementar contador de uso
         vector_store.increment_flow_usage(best_match['id'])
@@ -46,6 +62,13 @@ async def cache_searcher_agent(state: AgentState) -> AgentState:
     else:
         # Cache miss, continuar con el flujo normal
         logger.info("[CacheSearcher] Cache MISS. Proceeding with conversation.")
+
+        await progress_manager.send_event(session_id, ProgressEvent(
+            type=ProgressEventType.AGENT_COMPLETE,
+            agent="CacheSearcher",
+            message="No se encontró una solución similar en caché - iniciando generación personalizada"
+        ))
+
         state['cached_solution'] = None
         state['current_agent'] = 'conversator'
         state['needs_user_input'] = False  # Dejar que conversator decida

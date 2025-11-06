@@ -4,6 +4,7 @@ const API_BASE = 'http://localhost:8000/api';
 
 let currentSessionId = null;
 let isWaitingForResponse = false;
+let eventSource = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -19,8 +20,161 @@ async function initializeSampleNodes() {
         });
         const data = await response.json();
         console.log('Sample nodes initialized:', data);
+
+        // Also initialize documentation
+        const docResponse = await fetch(`${API_BASE}/init-documentation`, {
+            method: 'POST'
+        });
+        const docData = await docResponse.json();
+        console.log('Documentation initialized:', docData);
     } catch (error) {
-        console.error('Error initializing nodes:', error);
+        console.error('Error initializing:', error);
+    }
+}
+
+// Connect to SSE stream for progress updates
+function connectToProgressStream(sessionId) {
+    // If we already have a connection for this session, just show progress and return
+    if (eventSource && currentSessionId === sessionId) {
+        console.log('Reusing existing SSE connection for session:', sessionId);
+        const progressSection = document.getElementById('progressSection');
+        progressSection.classList.add('active');
+        return;
+    }
+
+    // Close existing connection if it's for a different session
+    if (eventSource) {
+        console.log('Closing previous SSE connection');
+        eventSource.close();
+    }
+
+    // Clear previous progress only when starting a new session
+    const progressSection = document.getElementById('progressSection');
+    progressSection.innerHTML = '';
+    progressSection.classList.add('active');
+
+    // Create new EventSource connection
+    eventSource = new EventSource(`${API_BASE}/chat/${sessionId}/stream`);
+
+    eventSource.onopen = () => {
+        console.log('SSE connection opened');
+    };
+
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Progress event:', data);
+
+            if (data.type === 'connected') {
+                addProgressEvent('info', 'Conectado al sistema de progreso', '🔗');
+            } else {
+                addProgressEvent(data.type, data.message, getIconForEventType(data.type));
+
+                // If it's a message from the assistant (starts with 💬), add to chat
+                if (data.type === 'info' && data.message.startsWith('💬 ')) {
+                    const chatMessage = data.message.substring(3); // Remove "💬 " prefix
+                    addMessage('assistant', chatMessage);
+
+                    // Re-enable input for user response
+                    isWaitingForResponse = false;
+                    updateUIState(false);
+
+                    // Don't close the stream - we'll need it for the next response
+                    // Just collapse the progress section after a short delay
+                    setTimeout(() => {
+                        progressSection.classList.remove('active');
+                    }, 2000);
+                }
+
+                // If complete, fetch the final result and close
+                if (data.type === 'complete') {
+                    // Fetch session to get final flow
+                    fetchSessionResult(currentSessionId);
+
+                    // Re-enable input
+                    isWaitingForResponse = false;
+                    updateUIState(false);
+
+                    setTimeout(() => {
+                        if (eventSource) {
+                            eventSource.close();
+                            eventSource = null;
+                        }
+                        // Hide progress section after a delay
+                        setTimeout(() => {
+                            progressSection.classList.remove('active');
+                        }, 3000);
+                    }, 1000);
+                }
+            }
+        } catch (error) {
+            console.error('Error parsing SSE event:', error);
+        }
+    };
+
+    eventSource.onerror = (error) => {
+        console.error('SSE error:', error);
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    };
+}
+
+// Add progress event to UI
+function addProgressEvent(type, message, icon = '•') {
+    const progressSection = document.getElementById('progressSection');
+    const eventDiv = document.createElement('div');
+    eventDiv.className = `progress-event ${type}`;
+
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'progress-icon';
+    iconSpan.textContent = icon;
+
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+
+    eventDiv.appendChild(iconSpan);
+    eventDiv.appendChild(messageSpan);
+    progressSection.appendChild(eventDiv);
+
+    // Scroll to bottom
+    progressSection.scrollTop = progressSection.scrollHeight;
+}
+
+// Get icon for event type
+function getIconForEventType(type) {
+    const icons = {
+        'agent_start': '🤖',
+        'agent_complete': '✅',
+        'phase_start': '⚙️',
+        'phase_complete': '✓',
+        'info': 'ℹ️',
+        'error': '❌',
+        'complete': '🎉'
+    };
+    return icons[type] || '•';
+}
+
+// Fetch session result after workflow completes
+async function fetchSessionResult(sessionId) {
+    try {
+        const response = await fetch(`${API_BASE}/session/${sessionId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const sessionData = await response.json();
+        console.log('Session result:', sessionData);
+
+        // Display flow if ready
+        if (sessionData.flow_ready && sessionData.flow_json) {
+            displayFlow(sessionData.flow_json);
+            updateStatus('ready', '✓ Flujo Generado');
+            addMessage('assistant', '✓ Flujo generado y validado exitosamente! El JSON está listo en el panel derecho.');
+        }
+    } catch (error) {
+        console.error('Error fetching session result:', error);
     }
 }
 
@@ -61,8 +215,15 @@ async function sendMessage() {
         // Update session ID
         currentSessionId = data.session_id;
 
-        // Add assistant response
-        addMessage('assistant', data.message);
+        // Connect to progress stream with a delay to ensure backend workflow has started
+        setTimeout(() => {
+            connectToProgressStream(currentSessionId);
+        }, 300);
+
+        // Add assistant response (will be initial message)
+        if (data.message && data.message !== "Procesando tu solicitud... Conéctate al stream para ver el progreso en tiempo real.") {
+            addMessage('assistant', data.message);
+        }
 
         // Update flow if ready
         if (data.flow_ready && data.flow_json) {

@@ -13,6 +13,28 @@ class FunctionCode(TypedDict):
     description: str
 
 
+class NodeConfiguration(TypedDict):
+    """Configuration for a specific node"""
+    node_id: str
+    node_type: str
+    properties: Dict[str, any]  # URLs, credentials, etc.
+    description: str
+
+
+class ConditionalLogic(TypedDict):
+    """Conditional logic for switch/function nodes"""
+    id: str
+    type: str  # 'switch' or 'function_conditional'
+    rules: List[Dict[str, any]]
+    description: str
+
+
+class WiringPlan(TypedDict):
+    """Plan for connecting nodes"""
+    connections: List[Dict[str, any]]  # [{from: id, to: id, output_port: 0}]
+    description: str
+
+
 class AgentState(TypedDict):
     """
     The shared state object that gets passed between all agents.
@@ -35,6 +57,13 @@ class AgentState(TypedDict):
 
     # Generated code
     generated_functions: List[FunctionCode]
+
+    # Manager coordination data
+    node_configurations: List[NodeConfiguration]  # Configs from ConfigurationAgent
+    conditional_logic: List[ConditionalLogic]  # Logic from ConditionalAgent
+    wiring_plan: Optional[WiringPlan]  # Connections from WiringAgent
+    manager_analysis: Optional[str]  # Summary from Manager
+    missing_information: List[str]  # What Manager needs from user
 
     # Final output
     final_json_flow: Optional[str]

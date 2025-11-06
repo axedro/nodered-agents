@@ -5,22 +5,27 @@ Hace preguntas para clarificar: ERP, CRM, destinos, formatos, etc.
 from loguru import logger
 from backend.core.state import AgentState
 from backend.core.llm_manager import LLMManager
+from backend.core.progress import progress_manager, ProgressEvent, ProgressEventType
+from backend.rag.vector_store import VectorStoreManager
 import json
 import re
 
 
-CONVERSATION_SYSTEM_PROMPT = """Eres un experto en Node-RED. Tu tarea: recopilar información del usuario para crear un flujo.
+CONVERSATION_SYSTEM_PROMPT = """Eres un experto en Node-RED. Tu tarea: recopilar información del usuario para crear un flujo completo y funcional.
 
 REGLAS IMPORTANTES:
-1. Si la solicitud inicial tiene DETALLES ESPECÍFICOS (origen de datos, destino, frecuencia), NO hagas más preguntas.
-2. Si la solicitud es VAGA o INCOMPLETA, haz máximo 2 preguntas específicas.
+1. Si la solicitud inicial tiene DETALLES ESPECÍFICOS (origen, destino, credenciales, frecuencia), NO hagas más preguntas.
+2. Si la solicitud es VAGA o INCOMPLETA, haz máximo 2-3 preguntas específicas y ESENCIALES.
 3. Después de la SEGUNDA respuesta del usuario, SIEMPRE completa la conversación.
 
-INFORMACIÓN NECESARIA:
-- Origen de datos (archivo, API, base de datos, etc.)
-- Destino (email, base de datos, API, etc.)
-- Frecuencia/trigger (tiempo, evento, manual)
-- Transformaciones necesarias (si/no)
+INFORMACIÓN ESENCIAL NECESARIA:
+{requirements_checklist}
+
+ENFÓCATE EN LO MÁS CRÍTICO:
+- INPUT: ¿De dónde vienen los datos? ¿Credenciales/autenticación?
+- OUTPUT: ¿A dónde van los datos? ¿Credenciales/configuración?
+- TRIGGER: ¿Cuándo/cómo se ejecuta? (manual, cada X tiempo, evento)
+- TRANSFORMACIÓN: ¿Qué procesamiento se necesita?
 
 FORMATO DE RESPUESTA:
 
@@ -53,16 +58,47 @@ async def conversator_agent(state: AgentState) -> AgentState:
     """
     logger.info("[Conversator] Starting conversation...")
 
+    session_id = state.get('session_id')
+
+    await progress_manager.send_event(session_id, ProgressEvent(
+        type=ProgressEventType.AGENT_START,
+        agent="Conversator",
+        message="Analizando y clarificando requerimientos del usuario..."
+    ))
+
     llm = LLMManager()
+    vector_store = VectorStoreManager()
+
+    # Buscar checklist de requerimientos en documentación
+    requirements_docs = vector_store.search_documentation(
+        query="Essential Flow Information Checklist requirements",
+        category="requirements",
+        n_results=1
+    )
+
+    requirements_checklist = ""
+    if requirements_docs:
+        requirements_checklist = requirements_docs[0]['content']
+    else:
+        requirements_checklist = """
+INPUT: origen de datos, autenticación, formato
+OUTPUT: destino, credenciales, formato de salida
+TRIGGER: frecuencia (manual, programado, evento)
+PROCESAMIENTO: transformaciones, filtros, validaciones
+"""
 
     # Contar cuántos intercambios ha habido (para forzar completion después de 2 rondas)
     user_messages = sum(1 for msg in state['conversation_history'] if msg['role'] == 'user')
 
     logger.info(f"[Conversator] User messages so far: {user_messages}")
 
-    # Construir historial de mensajes
+    # Construir historial de mensajes con checklist
+    system_prompt = CONVERSATION_SYSTEM_PROMPT.format(
+        requirements_checklist=requirements_checklist
+    )
+
     messages = [
-        {"role": "system", "content": CONVERSATION_SYSTEM_PROMPT}
+        {"role": "system", "content": system_prompt}
     ]
 
     # Agregar historial de conversación
@@ -97,31 +133,78 @@ async def conversator_agent(state: AgentState) -> AgentState:
 
     # Verificar si la conversación está completa
     try:
-        # Buscar JSON en la respuesta (más flexible)
-        json_match = re.search(r'\{[^{}]*"status"\s*:\s*"complete"[^{}]*\}', response, re.DOTALL | re.IGNORECASE)
+        # Buscar JSON en la respuesta usando un approach más robusto
+        # El LLM a veces pone texto antes del JSON, así que buscaremos todas las posibles posiciones
+        completion_data = None
 
-        if not json_match:
-            # Intentar buscar con estructura más anidada
-            json_match = re.search(r'\{(?:[^{}]|{[^{}]*})*"status"\s*:\s*"complete"(?:[^{}]|{[^{}]*})*\}', response, re.DOTALL | re.IGNORECASE)
+        # Estrategia 1: Buscar desde cada { encontrado
+        start_pos = 0
+        while True:
+            json_start = response.find('{', start_pos)
+            if json_start == -1:
+                break
 
-        if json_match:
-            json_str = json_match.group()
-            logger.info(f"[Conversator] Found JSON: {json_str[:100]}...")
-            completion_data = json.loads(json_str)
+            # Intentar parsear desde esta posición
+            json_candidate = response[json_start:]
+
+            # Buscar el cierre del JSON
+            try:
+                # Intentar encontrar el JSON completo con status: complete
+                # Buscar hasta el próximo } que cierre el JSON
+                depth = 0
+                for i, char in enumerate(json_candidate):
+                    if char == '{':
+                        depth += 1
+                    elif char == '}':
+                        depth -= 1
+                        if depth == 0:
+                            # Intentar parsear este fragmento
+                            potential_json = json_candidate[:i+1]
+                            try:
+                                data = json.loads(potential_json)
+                                if isinstance(data, dict) and data.get('status') == 'complete':
+                                    completion_data = data
+                                    logger.info(f"[Conversator] Found JSON: {potential_json[:100]}...")
+                                    break
+                            except json.JSONDecodeError:
+                                # Este no era un JSON válido, continuar buscando
+                                pass
+
+                if completion_data:
+                    break
+
+            except Exception:
+                pass
+
+            start_pos = json_start + 1
+
+        if completion_data:
 
             if completion_data.get('status') == 'complete':
                 # ¡Conversación completa!
-                logger.info("[Conversator] Conversation COMPLETE")
+                logger.info("[Conversator] Conversation COMPLETE - sending to Manager")
 
                 state['clarified_request'] = completion_data.get('clarified_request', state['user_request'])
                 state['required_nodes'] = completion_data.get('required_nodes', [])
                 state['detected_systems'] = completion_data.get('detected_systems', [])
-                state['current_agent'] = 'local_searcher'
+
+                await progress_manager.send_event(session_id, ProgressEvent(
+                    type=ProgressEventType.AGENT_COMPLETE,
+                    agent="Conversator",
+                    message=f"Requerimientos clarificados exitosamente: {len(state['required_nodes'])} nodos identificados",
+                    details={
+                        'required_nodes': state['required_nodes'],
+                        'detected_systems': state['detected_systems']
+                    }
+                ))
+
+                # Enviar al Manager para que coordine la recopilación de información
+                state['current_agent'] = 'manager'
                 state['needs_user_input'] = False
 
                 state['conversation_history'].append({
                     'role': 'assistant',
-                    'content': f"Perfecto, tengo toda la información. Voy a buscar los nodos necesarios para: {state['clarified_request']}"
+                    'content': f"Perfecto, tengo la información inicial. Analizando los requerimientos para: {state['clarified_request']}"
                 })
 
                 return state
@@ -131,7 +214,7 @@ async def conversator_agent(state: AgentState) -> AgentState:
 
     # Si ya hubo 3+ intentos y aún no hay completion, forzar manualmente
     if user_messages >= 3:
-        logger.warning("[Conversator] Forcing completion after 3 user messages")
+        logger.warning("[Conversator] Forcing completion after 3 user messages - sending to Manager")
 
         # Crear descripción basada en el historial
         all_user_content = " ".join([msg['content'] for msg in state['conversation_history'] if msg['role'] == 'user'])
@@ -139,17 +222,25 @@ async def conversator_agent(state: AgentState) -> AgentState:
         state['clarified_request'] = f"{state['user_request']}. {all_user_content}"
         state['required_nodes'] = ["inject", "function", "debug"]  # Nodos básicos por defecto
         state['detected_systems'] = []
-        state['current_agent'] = 'local_searcher'
+
+        # Enviar al Manager para que coordine
+        state['current_agent'] = 'manager'
         state['needs_user_input'] = False
 
         state['conversation_history'].append({
             'role': 'assistant',
-            'content': f"Entiendo. Voy a crear el flujo basado en la información proporcionada."
+            'content': f"Entiendo. Analizando los requerimientos para crear el flujo."
         })
 
         return state
 
     # Continuar conversación
+    await progress_manager.send_event(session_id, ProgressEvent(
+        type=ProgressEventType.INFO,
+        agent="Conversator",
+        message="Esperando más información del usuario..."
+    ))
+
     state['conversation_history'].append({
         'role': 'assistant',
         'content': response

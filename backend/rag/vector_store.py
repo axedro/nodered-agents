@@ -1,9 +1,10 @@
 """
 Vector Store Management using ChromaDB
-Manages 3 collections:
+Manages 4 collections:
 1. installed_nodes - RAG 1: Installed Node-RED nodes
 2. approved_flows - RAG 2: User-approved flow solutions
 3. feedback_history - RAG 3: Feedback for reinforcement learning
+4. documentation - RAG 4: Node-RED best practices and configuration requirements
 """
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -59,6 +60,12 @@ class VectorStoreManager:
         self.feedback_history = self.client.get_or_create_collection(
             name="feedback_history",
             metadata={"description": "Flow feedback for reinforcement learning"}
+        )
+
+        # Collection 4: Documentation (RAG 4)
+        self.documentation = self.client.get_or_create_collection(
+            name="documentation",
+            metadata={"description": "Node-RED best practices and configuration requirements"}
         )
 
         logger.info("Vector store initialized successfully")
@@ -275,6 +282,72 @@ class VectorStoreManager:
             "average_score": sum(scores) / len(scores) if scores else 0,
             "approval_rate": approvals / len(all_feedback['ids']) if all_feedback['ids'] else 0
         }
+
+    # ==================== DOCUMENTATION (RAG 4) ====================
+
+    def add_documentation(
+        self,
+        title: str,
+        content: str,
+        category: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Add documentation entry (best practices, configuration requirements, etc.)"""
+        doc_id = str(uuid.uuid4())
+
+        # Create searchable text
+        search_text = f"{title} {category} {content}"
+        embedding = self.embedding_generator.generate(search_text)
+
+        meta = metadata or {}
+        meta.update({
+            "title": title,
+            "category": category,
+            "created_at": datetime.now().isoformat()
+        })
+
+        self.documentation.add(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[content],
+            metadatas=[meta]
+        )
+
+        logger.info(f"Added documentation: {title} (category: {category})")
+        return doc_id
+
+    def search_documentation(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        n_results: int = 3
+    ) -> List[Dict[str, Any]]:
+        """Search documentation by query"""
+        query_embedding = self.embedding_generator.generate(query)
+
+        where_filter = None
+        if category:
+            where_filter = {"category": category}
+
+        results = self.documentation.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=where_filter
+        )
+
+        # Format results
+        formatted = []
+        if results['ids'] and len(results['ids'][0]) > 0:
+            for i in range(len(results['ids'][0])):
+                formatted.append({
+                    'id': results['ids'][0][i],
+                    'title': results['metadatas'][0][i].get('title'),
+                    'category': results['metadatas'][0][i].get('category'),
+                    'content': results['documents'][0][i],
+                    'distance': results['distances'][0][i] if 'distances' in results else None
+                })
+
+        return formatted
 
     # ==================== UTILITY METHODS ====================
 

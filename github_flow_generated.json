@@ -1,0 +1,174 @@
+[
+  {
+    "id": "unique-id-1",
+    "type": "inject",
+    "name": "Start",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "repeat": "",
+    "crontab": "0 * * * *",
+    "once": false,
+    "x": 100,
+    "y": 100,
+    "wires": [["unique-id-2"]]
+  },
+  {
+    "id": "unique-id-2",
+    "type": "function",
+    "name": "Process Data",
+    "func": "var msg = {};\nmsg.payload = function_1();\nmsg.payload.publicRepositories = function_2(msg.payload);\nmsg.payload.dailySummary = daily_summary(msg.payload.publicRepositories);\nif (Array.isArray(msg.payload.dailySummary)) {\n  msg.payload.emailSubject = 'Resumen de repositorios diarios';\n  msg.payload.emailBody = function_3(msg.payload.dailySummary);\n}\nreturn msg;",
+    "outputs": 1,
+    "x": 300,
+    "y": 100,
+    "wires": [["unique-id-3"], ["unique-id-4"], ["unique-id-5"]]
+  },
+  {
+    "id": "unique-id-3",
+    "type": "debug",
+    "name": "Public Repositories",
+    "x": 500,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "unique-id-4",
+    "type": "function",
+    "name": "daily_summary",
+    "func": "// Agrupa los repositorios por día\nvar today = new Date();\nvar yesterday = new Date(today.getTime() - (24 * 60 * 60 * 1000));\n...",
+    "outputs": 1,
+    "x": 500,
+    "y": 180,
+    "wires": [["unique-id-2"]]
+  },
+  {
+    "id": "unique-id-5",
+    "type": "function",
+    "name": "email_daily_summary",
+    "func": "// Filtra solo mensajes de resumen diario\nif (msg.payload.hasOwnProperty('dailySummary')) {\n  return msg.payload.dailySummary;\n}\nreturn null;",
+    "outputs": 1,
+    "x": 500,
+    "y": 260,
+    "wires": [["unique-id-6"]]
+  },
+  {
+    "id": "unique-id-6",
+    "type": "function",
+    "name": "daily_summary_email",
+    "func": "// Envía el resumen diario por correo electrónico solo si es un array\nif (Array.isArray(msg.payload)) {\n  return msg.payload;\n}\nreturn null;",
+    "outputs": 1,
+    "x": 500,
+    "y": 340,
+    "wires": [["unique-id-7"]]
+  },
+  {
+    "id": "unique-id-7",
+    "type": "email",
+    "name": "Send Email",
+    "subject": "",
+    "headers": "",
+    "html": "",
+    "x": 500,
+    "y": 420,
+    "wires": []
+  },
+  {
+    "id": "unique-id-8",
+    "type": "template",
+    "name": "Email Subject",
+    "subject": "Resumen de repositorios diarios",
+    "x": 500,
+    "y": 480,
+    "wires": [["unique-id-7"]]
+  },
+  {
+    "id": "unique-id-9",
+    "type": "template",
+    "name": "Email Body",
+    "subject": "",
+    "html": "{{dailySummary}}",
+    "x": 500,
+    "y": 540,
+    "wires": ["unique-id-7"]
+  },
+  {
+    "id": "unique-id-10",
+    "type": "http request",
+    "name": "GitHub API Request",
+    "url": "{{github.username}}/repos?type=owner",
+    "method": "GET",
+    "headers": "",
+    "x": 500,
+    "y": 600,
+    "wires": ["unique-id-4"]
+  },
+  {
+    "id": "unique-id-11",
+    "type": "github",
+    "name": "GitHub Auth",
+    "access_token": "{{github.accessToken}}",
+    "x": 500,
+    "y": 660,
+    "wires": ["unique-id-10"]
+  },
+  {
+    "id": "unique-id-12",
+    "type": "function",
+    "name": "function_1",
+    "func": "// Obtiene los repositorios del usuario\nvar url = 'https://api.github.com/users/{{github.username}}/repos?type=owner';\nreturn httpGet(url);",
+    "outputs": 1,
+    "x": 500,
+    "y": 720,
+    "wires": ["unique-id-10"]
+  },
+  {
+    "id": "unique-id-13",
+    "type": "function",
+    "name": "function_2",
+    "func": "// Agrupa los repositorios por día\nvar today = new Date();\nvar yesterday = new Date(today.getTime() - (24 * 60 * 60 * 1000));\n...",
+    "outputs": 1,
+    "x": 500,
+    "y": 780,
+    "wires": ["unique-id-12"]
+  },
+  {
+    "id": "unique-id-14",
+    "type": "function",
+    "name": "function_3",
+    "func": "// Envía el resumen diario por correo electrónico\nvar subject = 'Resumen de repositorios diarios';\nv...",
+    "outputs": 1,
+    "x": 500,
+    "y": 840,
+    "wires": ["unique-id-6"]
+  },
+  {
+    "id": "unique-id-15",
+    "type": "email",
+    "name": "Send Daily Summary Email",
+    "subject": "",
+    "headers": "",
+    "html": "",
+    "x": 500,
+    "y": 900,
+    "wires": []
+  },
+  {
+    "id": "unique-id-16",
+    "type": "template",
+    "name": "Email Subject Daily Summary",
+    "subject": "Resumen de repositorios diarios",
+    "x": 500,
+    "y": 960,
+    "wires": ["unique-id-15"]
+  },
+  {
+    "id": "unique-id-17",
+    "type": "template",
+    "name": "Email Body Daily Summary",
+    "subject": "",
+    "html": "{{dailySummary}}",
+    "x": 500,
+    "y": 1020,
+    "wires": ["unique-id-15"]
+  }
+]
